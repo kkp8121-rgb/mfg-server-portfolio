@@ -1,0 +1,8 @@
+# {$DOMAIN}을 환경변수로 설정 (예: api.mf-game.com)
+{$DOMAIN:localhost} {
+    reverse_proxy api:8080
+    encode gzip
+    log {
+        output stdout
+    }
+}

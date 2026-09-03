@@ -1,0 +1,138 @@
+name: cd
+
+# main 머지 후 ci(docker-push) 완료 → Lightsail SSH → docker compose pull + up -d
+#
+# 필요 Secrets (GitHub repo Settings → Secrets and variables → Actions):
+#   LIGHTSAIL_HOST         — 배포 서버 IP/도메인 (예: api.mf-game.com)
+#   LIGHTSAIL_USER         — SSH 사용자 (기본: ubuntu)
+#   LIGHTSAIL_SSH_KEY      — 개인키 전체 내용 (-----BEGIN RSA PRIVATE KEY----- ...)
+#   LIGHTSAIL_DEPLOY_PATH  — 서버상 docker-compose.prod.yml 위치 (예: /opt/mfg/server)
+#   SLACK_WEBHOOK_BUILDS   — (선택) 배포 알림 채널
+#
+# 서버 사전 준비:
+#   1) Lightsail 인스턴스에 docker + docker compose 설치
+#   2) $LIGHTSAIL_DEPLOY_PATH 에 docker-compose.prod.yml + Caddyfile + .env + serviceAccountKey.json + play-services.json 복사
+#   3) docker-compose.prod.yml 의 api 서비스가 image: ghcr.io/<owner>/mfg-server:latest 사용
+#   4) GHCR private 이미지: 서버에서 `docker login ghcr.io -u <user> -p <PAT>` 선행
+
+on:
+  workflow_run:
+    workflows: ["ci"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: 'Image tag to deploy (default: latest)'
+        required: false
+        default: 'latest'
+
+jobs:
+  deploy:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read   # GHCR private 이미지 pull 시 GITHUB_TOKEN 에 read:packages 권한 부여
+    concurrency:
+      group: lightsail-prod
+      cancel-in-progress: false
+    steps:
+      - name: Checkout (for post-deploy-smoke.sh)
+        uses: actions/checkout@v4
+
+      - name: Resolve image tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ github.event.inputs.image_tag }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=latest" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Deploy to Lightsail
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          IMAGE_TAG: ${{ steps.tag.outputs.tag }}
+          DEPLOY_PATH: ${{ secrets.LIGHTSAIL_DEPLOY_PATH }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          host: ${{ secrets.LIGHTSAIL_HOST }}
+          username: ${{ secrets.LIGHTSAIL_USER }}
+          key: ${{ secrets.LIGHTSAIL_SSH_KEY }}
+          envs: IMAGE_TAG,DEPLOY_PATH,GHCR_USER,GHCR_TOKEN
+          script: |
+            set -euo pipefail
+            echo "[CD] ghcr.io 로그인 (GITHUB_TOKEN 사용, private image 접근용)"
+            echo "$GHCR_TOKEN" | sudo docker login ghcr.io -u "$GHCR_USER" --password-stdin
+            cd "$DEPLOY_PATH"
+            echo "[CD] pulling ghcr.io image tag: $IMAGE_TAG"
+            sudo docker compose -f docker-compose.prod.yml pull api
+            echo "[CD] restarting full stack (db/caddy/api)"
+            sudo docker compose -f docker-compose.prod.yml up -d
+            echo "[CD] pruning dangling images"
+            sudo docker image prune -f
+            echo "[CD] ghcr.io 로그아웃 (자격증명 폐기)"
+            sudo docker logout ghcr.io
+
+      - name: Health check (fast)
+        run: |
+          HOST="${{ secrets.LIGHTSAIL_HOST }}"
+          for i in 1 2 3 4 5 6; do
+            sleep 10
+            if curl -fsS "https://${HOST}/health"; then
+              echo "[CD] health OK"
+              exit 0
+            fi
+            echo "[CD] health retry $i..."
+          done
+          echo "[CD] health check failed"
+          exit 1
+
+      - name: Post-deploy smoke (11 체크)
+        # Phase 26 API + auth guards 종합 검증. 실패 시 deploy job 전체 실패 → Slack 알림 + 롤백 유도.
+        # 상세: server/Docs/release-checklist.md
+        env:
+          BASE: https://${{ secrets.LIGHTSAIL_HOST }}
+        run: bash scripts/post-deploy-smoke.sh
+
+      - name: Notify Slack (Success)
+        if: success() && env.SLACK_WEBHOOK_BUILDS != ''
+        env:
+          SLACK_WEBHOOK_BUILDS: ${{ secrets.SLACK_WEBHOOK_BUILDS }}
+        uses: slackapi/slack-github-action@v1.27.0
+        with:
+          webhook-url: ${{ secrets.SLACK_WEBHOOK_BUILDS }}
+          webhook-type: incoming-webhook
+          payload: |
+            {
+              "attachments": [{
+                "color": "good",
+                "title": "[MFG API] Production deploy OK",
+                "fields": [
+                  {"title": "Tag", "value": "${{ steps.tag.outputs.tag }}", "short": true},
+                  {"title": "Actor", "value": "${{ github.actor }}", "short": true}
+                ]
+              }]
+            }
+
+      - name: Notify Slack (Failure)
+        if: failure() && env.SLACK_WEBHOOK_BUILDS != ''
+        env:
+          SLACK_WEBHOOK_BUILDS: ${{ secrets.SLACK_WEBHOOK_BUILDS }}
+        uses: slackapi/slack-github-action@v1.27.0
+        with:
+          webhook-url: ${{ secrets.SLACK_WEBHOOK_BUILDS }}
+          webhook-type: incoming-webhook
+          payload: |
+            {
+              "attachments": [{
+                "color": "danger",
+                "title": "[MFG API] Production deploy FAILED — rollback may be required",
+                "fields": [
+                  {"title": "Tag", "value": "${{ steps.tag.outputs.tag }}", "short": true},
+                  {"title": "Run", "value": "<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View logs>"}
+                ]
+              }]
+            }

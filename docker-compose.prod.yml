@@ -1,0 +1,63 @@
+# 프로덕션 배포용 (AWS Lightsail)
+# 사용법: .env 작성 후 → docker compose -f docker-compose.prod.yml up -d
+
+services:
+  api:
+    # GHCR 이미지 pull (CI가 자동 빌드+푸시). 로컬 빌드 필요 시 build: . 로 override.
+    image: ${API_IMAGE:-ghcr.io/kkp8121-rgb/mfg-server:latest}
+    container_name: mfg-api
+    restart: unless-stopped
+    environment:
+      - ConnectionStrings__DefaultConnection=Server=db;Port=3306;Database=${DB_NAME:-mfg};User=${DB_USER:-mfg};Password=${DB_PASSWORD:?required}
+      - Firebase__ProjectId=${FIREBASE_PROJECT_ID:-mfg-prod-4cb30}
+      - Firebase__CredentialPath=${FIREBASE_CREDENTIAL_PATH:-/app/serviceAccountKey.json}
+      - GooglePlay__CredentialPath=${GOOGLE_PLAY_CREDENTIAL_PATH:-/app/play-services.json}
+      - GooglePlay__PackageName=${GOOGLE_PLAY_PACKAGE_NAME:-com.mfg.game}
+      - Slack__ErrorWebhook=${SLACK_WEBHOOK_ERRORS:-}
+      - R2__AccessKey=${R2_ACCESS_KEY:-}
+      - R2__Secret=${R2_SECRET:-}
+      - R2__Bucket=${R2_BUCKET:-mfg-assets}
+      - R2__PublicUrl=${R2_PUBLIC_URL:-https://cdn.mf-game.com}
+      - ASPNETCORE_ENVIRONMENT=Production
+    volumes:
+      - ./serviceAccountKey.json:/app/serviceAccountKey.json:ro
+      - ./play-services.json:/app/play-services.json:ro
+      - api_logs:/app/logs
+    depends_on:
+      - db
+
+  db:
+    image: mysql:8.0
+    container_name: mfg-db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?required}
+      MYSQL_DATABASE: ${DB_NAME:-mfg}
+      MYSQL_USER: ${DB_USER:-mfg}
+      MYSQL_PASSWORD: ${DB_PASSWORD:?required}
+    volumes:
+      - mysqldata:/var/lib/mysql
+    command: --default-authentication-plugin=mysql_native_password
+    # 포트 외부 노출 안 함 (api 컨테이너만 접근)
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: mfg-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - DOMAIN=${DOMAIN:-localhost}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
+
+volumes:
+  mysqldata:
+  caddy_data:
+  caddy_config:
+  api_logs:

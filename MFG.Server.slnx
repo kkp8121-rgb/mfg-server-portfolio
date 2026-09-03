@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/MFG.Data/MFG.Data.csproj" />
+    <Project Path="src/MFG.Domain/MFG.Domain.csproj" />
+    <Project Path="src/MFG.Server/MFG.Server.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/MFG.Server.Tests/MFG.Server.Tests.csproj" />
+  </Folder>
+</Solution>

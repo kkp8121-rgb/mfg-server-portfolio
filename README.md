@@ -2,7 +2,7 @@
 
 > ⚠️ **중단된 개인 프로토타입 (2026-04, 단독 개발).** 학습·포트폴리오 목적으로 공개합니다. 상용 서비스로 출시된 적은 없으며, 아래 "현재 상태 / 완성도"와 "시크릿 관리" 절을 먼저 확인해 주세요.
 
-MFG (Mobile Fantasy Game) 백엔드 — ASP.NET Core 10 + EF Core + MySQL 8.0 + Firebase Auth. 2026-04-15~04-21(약 1주) 동안 **14커밋 전량 단독 개발(solo)**. 클라이언트는 별도 레포 [`mfg-client`](../mfg-client)(Unity 6000.3.10f1) 참고.
+MFG (Mobile Fantasy Game) 백엔드 — ASP.NET Core 10 + EF Core + MySQL 8.0 + Firebase Auth. 2026-04-15~04-21(약 1주) 동안 **14커밋 전량 단독 개발(solo)**. 클라이언트는 별도 레포 [`mfg-client`](https://github.com/kkp8121-rgb/mfg-client-portfolio)(Unity 6000.3.10f1) 참고.
 
 컨트롤러 15개, xUnit 통합 테스트 11개 파일, GitHub Actions CI/CD → GHCR → AWS Lightsail 배포 파이프라인까지 **구성됨(프로토타입)** — 실제 상시 가동 여부는 "현재 상태" 절 참고.
 
@@ -21,8 +21,8 @@ MFG (Mobile Fantasy Game) 백엔드 — ASP.NET Core 10 + EF Core + MySQL 8.0 + 
 - Phase 26 Sprint 26-2(SO→JSON CI 데이터 파이프라인) 진행 필요 상태로 남음
 
 **확인 필요**
-- Lightsail 서버가 실제로 상시 가동 중인지, 백업 복원 드릴(`Docs/backup.md`)이 실제로 수행된 이력이 있는지 — `[소유자 확인]`
-- 프로덕션 트래픽 하에서의 부하/장애 대응 이력 — `[소유자 확인]`
+- 서버는 현재 운영하지 않습니다(프로토타입 중단, 관련 자격증명은 전부 폐기). 백업 복원 드릴은 `Docs/backup.md`에 절차만 문서화했고 정기 수행 이력은 남기지 않았습니다.
+- 프로덕션 트래픽을 받은 적이 없어 부하·장애 대응 이력은 없습니다.
 
 ---
 
@@ -182,11 +182,13 @@ Docs/
 
 ## 클라이언트 연동
 
-Unity 클라이언트는 별도 레포 [`mfg-client`](../mfg-client) — `Core/Net/ApiClient.cs`가 이 서버의 `api/v1` 엔드포인트를 UniTask 기반으로 호출하며, 세이브 데이터는 `SaveController`(`sync`/`migrate`/`load`)를 통해 로컬↔서버 간 동기화됩니다.
+Unity 클라이언트는 별도 레포 [`mfg-client`](https://github.com/kkp8121-rgb/mfg-client-portfolio) — `Core/Net/ApiClient.cs`가 이 서버의 `api/v1` 엔드포인트를 UniTask 기반으로 호출하며, 세이브 데이터는 `SaveController`(`sync`/`migrate`/`load`)를 통해 로컬↔서버 간 동기화됩니다.
 
 ## 중단 사유 · 배운 점
 
-`[소유자 작성]`
+클라이언트([mfg-client-portfolio](https://github.com/kkp8121-rgb/mfg-client-portfolio))와 함께 중단했습니다. 서버 자체는 1주 만에 가챠·길드·아레나·IAP 영수증 검증·CI/CD까지 갖췄지만, 게임의 핵심 재미가 확인되지 않은 상태에서 백엔드를 먼저 완성한 셈이었습니다.
+
+배운 점: **서버는 코어 루프가 검증된 뒤에 필요한 만큼만 세운다.** 다만 WebApplicationFactory 기반 통합 테스트, GitHub Actions → GHCR → Lightsail 배포 파이프라인, 시크릿·백업 런북 같은 운영 골격은 다음 프로젝트에 그대로 재사용할 수 있는 형태로 남았습니다.
 
 ## 라이선스
 
